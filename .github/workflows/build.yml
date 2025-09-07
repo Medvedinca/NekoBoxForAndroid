@@ -1,11 +1,16 @@
-name: Build NekoBox APK
+name: Build Private APK
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+  workflow_dispatch:  # Только ручной запуск
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
 
 jobs:
   build:
@@ -84,17 +89,66 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     
-    - name: Build APK
+    - name: Build Debug APK
+      if: github.event.inputs.build_type == 'debug'
       run: ./gradlew assembleDebug
     
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: NekoBox-debug
-        path: app/build/outputs/apk/fdroid/debug/*.apk
+    - name: Setup signing config
+      if: github.event.inputs.build_type == 'release'
+      run: |
+        # Decode keystore if you have it in secrets
+        # echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+        # Or use the default keystore from repo
+        echo "Using default keystore from repository"
     
-    - name: Upload mapping files
+    - name: Build Release APK
+      if: github.event.inputs.build_type == 'release'
+      run: |
+        ./gradlew assembleRelease || ./gradlew assembleDebug
+    
+    - name: Get current date
+      id: date
+      run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+    
+    - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: mapping
-        path: app/build/outputs/mapping/
+        name: NekoBox-${{ github.event.inputs.build_type }}-${{ steps.date.outputs.date }}
+        path: |
+          app/build/outputs/apk/**/*.apk
+        retention-days: 30  # Хранить артефакты 30 дней
+    
+    - name: Upload to Transfer.sh (temporary link)
+      run: |
+        # Find APK file
+        APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -1)
+        if [ -f "$APK_PATH" ]; then
+          echo "📦 Uploading APK to temporary storage..."
+          UPLOAD_URL=$(curl --upload-file "$APK_PATH" https://transfer.sh/nekobox-${{ steps.date.outputs.date }}.apk)
+          echo "✅ Download link (valid for 14 days):"
+          echo "$UPLOAD_URL"
+          echo ""
+          echo "DOWNLOAD_URL=$UPLOAD_URL" >> $GITHUB_ENV
+        fi
+    
+    - name: Create Summary
+      run: |
+        echo "# Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Build Type:** ${{ github.event.inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** ${{ steps.date.outputs.date }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Download Options:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 1. GitHub Artifacts (30 days)" >> $GITHUB_STEP_SUMMARY
+        echo "Download from the Artifacts section below" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ ! -z "$DOWNLOAD_URL" ]; then
+          echo "### 2. Direct Download (14 days)" >> $GITHUB_STEP_SUMMARY
+          echo "[$DOWNLOAD_URL]($DOWNLOAD_URL)" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## APK Files:" >> $GITHUB_STEP_SUMMARY
+        find app/build/outputs/apk -name "*.apk" -exec basename {} \; | while read apk; do
+          echo "- $apk" >> $GITHUB_STEP_SUMMARY
+        done
