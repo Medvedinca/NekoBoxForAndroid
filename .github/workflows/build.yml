@@ -101,6 +101,22 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     
+    - name: Setup build environment
+      run: |
+        echo "=== Setting up Gradle properties ==="
+        # Increase memory for Gradle
+        echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError" >> gradle.properties
+        echo "org.gradle.parallel=true" >> gradle.properties
+        echo "org.gradle.caching=true" >> gradle.properties
+        echo "kotlin.incremental=false" >> gradle.properties
+        
+        # Disable certain checks that might fail
+        echo "android.injected.testOnly=false" >> gradle.properties
+        echo "android.enableJetifier=true" >> gradle.properties
+        echo "android.useAndroidX=true" >> gradle.properties
+        
+        cat gradle.properties
+    
     - name: Check project structure
       run: |
         echo "=== Checking libcore.aar ==="
@@ -118,30 +134,42 @@ jobs:
     - name: Build Debug APK
       if: github.event.inputs.build_type == 'debug'
       run: |
-        # First attempt with detailed output
-        ./gradlew assembleDebug --stacktrace --info || true
+        echo "=== Attempting to build FDroid variant only ==="
+        # Try building just the fdroid variant first
+        ./gradlew :app:assembleFdroidDebug --stacktrace 2>&1 | tee build.log || true
+        
         # Check if build succeeded
         if [ ! -f app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk ]; then
-          echo "Build failed, checking for common issues..."
+          echo "=== Build failed, analyzing error ==="
           
-          # List Kotlin files that might have issues
-          echo "=== Checking for DefaultConfigLoader ==="
-          ls -la app/src/main/java/io/nekohasekai/sagernet/ui/ | grep -i config || echo "No config files found"
+          # Extract Kotlin compilation errors
+          echo "=== Kotlin Compilation Errors ==="
+          grep -A 10 -B 5 "e: " build.log | head -100 || echo "No Kotlin errors found in log"
           
-          # Remove problematic files if they exist
-          echo "=== Removing potentially problematic files ==="
-          rm -f app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt 2>/dev/null || true
-          rm -f app/src/main/java/io/nekohasekai/sagernet/ui/CustomConfigLoader.kt 2>/dev/null || true
+          # Check for unresolved references
+          echo "=== Unresolved References ==="
+          grep "Unresolved reference" build.log | head -20 || echo "No unresolved references found"
           
-          # Reset MainActivity to default state
-          if [ -f app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt ]; then
-            git checkout -- app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt 2>/dev/null || true
-          fi
+          # Try a minimal build without problematic features
+          echo "=== Attempting minimal build ==="
           
-          echo "=== Retrying build ==="
+          # Remove any custom config loaders
+          find app/src -name "*ConfigLoader*.kt" -type f -delete 2>/dev/null || true
+          
+          # Clean and try again with just one variant
           ./gradlew clean
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew :app:assembleFdroidDebug --stacktrace --no-daemon
         fi
+        
+        # If fdroid variant still fails, try oss variant
+        if [ ! -f app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk ]; then
+          echo "=== FDroid variant failed, trying OSS variant ==="
+          ./gradlew :app:assembleOssDebug --stacktrace || true
+        fi
+        
+        # List all APK files generated
+        echo "=== Generated APK files ==="
+        find app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
     
     - name: Setup signing config
       if: github.event.inputs.build_type == 'release'
