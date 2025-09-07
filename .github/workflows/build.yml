@@ -46,6 +46,17 @@ jobs:
         cd ..
         git clone https://github.com/MatsuriDayo/libneko
         git clone https://github.com/MatsuriDayo/sing-box-extra sing-box
+        
+        # Fix sing-box dependencies first
+        cd sing-box
+        # Replace sing-quic v1.0.0 with v0.5.0 in go.mod if it exists
+        if grep -q "github.com/sagernet/sing-quic v1.0.0" go.mod 2>/dev/null; then
+          sed -i 's/github.com\/sagernet\/sing-quic v1.0.0/github.com\/sagernet\/sing-quic v0.5.0/g' go.mod
+        fi
+        # Try to get the correct version
+        go get github.com/sagernet/sing-quic@v0.5.0 || true
+        go mod tidy || true
+        cd ..
     
     - name: Install gomobile
       run: |
@@ -56,8 +67,9 @@ jobs:
     - name: Fix Go dependencies
       run: |
         cd libcore
-        # Fix sing-quic version issue - use v0.5.0 as specified in go.mod
+        # Update dependencies to match
         go get github.com/sagernet/sing-quic@v0.5.0
+        go mod download || true
         go mod tidy || true
         
     - name: Build libcore
