@@ -101,17 +101,46 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     
+    - name: Check project structure
+      run: |
+        echo "=== Checking libcore.aar ==="
+        ls -la app/libs/ | grep libcore || echo "libcore.aar not found!"
+        
+        echo "=== Checking Kotlin source files ==="
+        find app/src/main/java -name "*.kt" -type f | head -20
+        
+        echo "=== Checking for potential issues ==="
+        # Check if DefaultConfigLoader exists
+        if [ -f app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt ]; then
+          echo "WARNING: DefaultConfigLoader.kt exists and might cause issues"
+        fi
+    
     - name: Build Debug APK
       if: github.event.inputs.build_type == 'debug'
       run: |
-        ./gradlew assembleDebug --warning-mode all || true
+        # First attempt with detailed output
+        ./gradlew assembleDebug --stacktrace --info || true
         # Check if build succeeded
         if [ ! -f app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk ]; then
-          echo "Build failed, trying without custom loader..."
-          # Remove custom loader to avoid compilation errors
-          rm -f app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt
-          git checkout -- app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt
-          ./gradlew assembleDebug
+          echo "Build failed, checking for common issues..."
+          
+          # List Kotlin files that might have issues
+          echo "=== Checking for DefaultConfigLoader ==="
+          ls -la app/src/main/java/io/nekohasekai/sagernet/ui/ | grep -i config || echo "No config files found"
+          
+          # Remove problematic files if they exist
+          echo "=== Removing potentially problematic files ==="
+          rm -f app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt 2>/dev/null || true
+          rm -f app/src/main/java/io/nekohasekai/sagernet/ui/CustomConfigLoader.kt 2>/dev/null || true
+          
+          # Reset MainActivity to default state
+          if [ -f app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt ]; then
+            git checkout -- app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt 2>/dev/null || true
+          fi
+          
+          echo "=== Retrying build ==="
+          ./gradlew clean
+          ./gradlew assembleDebug --stacktrace
         fi
     
     - name: Setup signing config
