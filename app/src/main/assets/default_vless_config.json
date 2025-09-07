@@ -1,0 +1,13 @@
+{
+  "remarks": "VLESS Default",
+  "serverAddress": "your-server.com",
+  "serverPort": 443,
+  "uuid": "YOUR-UUID-HERE",
+  "encryption": "none",
+  "flow": "",
+  "type": "tcp",
+  "security": "tls",
+  "sni": "your-server.com",
+  "alpn": "h2,http/1.1",
+  "allowInsecure": false
+}

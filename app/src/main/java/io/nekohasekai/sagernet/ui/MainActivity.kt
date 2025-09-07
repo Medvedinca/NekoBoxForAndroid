@@ -98,6 +98,9 @@ class MainActivity : ThemedActivity(),
         connection.connect(this, this)
         DataStore.configurationStore.registerChangeListener(this)
         GroupManager.userInterface = GroupInterfaceAdapter(this)
+        
+        // Load default VLESS config on first launch
+        DefaultConfigLoader.loadDefaultVLESSConfig(this)
 
         if (intent?.action == Intent.ACTION_VIEW) {
             onNewIntent(intent)
