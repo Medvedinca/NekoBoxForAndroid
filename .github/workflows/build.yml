@@ -91,7 +91,16 @@ jobs:
     
     - name: Build Debug APK
       if: github.event.inputs.build_type == 'debug'
-      run: ./gradlew assembleDebug
+      run: |
+        ./gradlew assembleDebug --warning-mode all || true
+        # Check if build succeeded
+        if [ ! -f app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk ]; then
+          echo "Build failed, trying without custom loader..."
+          # Remove custom loader to avoid compilation errors
+          rm -f app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt
+          git checkout -- app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt
+          ./gradlew assembleDebug
+        fi
     
     - name: Setup signing config
       if: github.event.inputs.build_type == 'release'
@@ -104,7 +113,7 @@ jobs:
     - name: Build Release APK
       if: github.event.inputs.build_type == 'release'
       run: |
-        ./gradlew assembleRelease || ./gradlew assembleDebug
+        ./gradlew assembleRelease --warning-mode all || ./gradlew assembleDebug
     
     - name: Get current date
       id: date

@@ -35,7 +35,6 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var selectedProxy by configurationStore.long(Key.PROFILE_ID)
     var selectedGroup by configurationStore.long(Key.PROFILE_GROUP) { currentGroupId() } // "ungrouped" group id = 1
-    var defaultConfigLoaded by configurationStore.boolean("default_config_loaded")
 
     // only in bg process
     var vpnService: VpnService? = null
