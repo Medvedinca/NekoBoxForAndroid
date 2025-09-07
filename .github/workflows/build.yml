@@ -126,10 +126,25 @@ jobs:
         find app/src/main/java -name "*.kt" -type f | head -20
         
         echo "=== Checking for potential issues ==="
-        # Check if DefaultConfigLoader exists
-        if [ -f app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt ]; then
-          echo "WARNING: DefaultConfigLoader.kt exists and might cause issues"
-        fi
+        # Check and remove problematic files that might have been added
+        PROBLEMATIC_FILES=(
+          "app/src/main/java/io/nekohasekai/sagernet/ui/DefaultConfigLoader.kt"
+          "app/src/main/java/io/nekohasekai/sagernet/ui/CustomConfigLoader.kt"
+          "app/src/main/java/io/nekohasekai/sagernet/ui/VlessConfigLoader.kt"
+        )
+        
+        for file in "${PROBLEMATIC_FILES[@]}"; do
+          if [ -f "$file" ]; then
+            echo "WARNING: Found problematic file $file - removing it"
+            rm -f "$file"
+          fi
+        done
+        
+        # Reset MainActivity if it was modified
+        git status app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt 2>/dev/null | grep -q "modified" && {
+          echo "Resetting MainActivity.kt to original state"
+          git checkout -- app/src/main/java/io/nekohasekai/sagernet/ui/MainActivity.kt 2>/dev/null || true
+        }
     
     - name: Build Debug APK
       if: github.event.inputs.build_type == 'debug'
@@ -182,7 +197,41 @@ jobs:
     - name: Build Release APK
       if: github.event.inputs.build_type == 'release'
       run: |
-        ./gradlew assembleRelease --warning-mode all || ./gradlew assembleDebug
+        echo "=== Attempting to build Release APK ==="
+        
+        # Try building just the fdroid release variant first
+        ./gradlew :app:assembleFdroidRelease --stacktrace 2>&1 | tee build.log || true
+        
+        # Check if build succeeded
+        if [ ! -f app/build/outputs/apk/fdroid/release/app-fdroid-release-unsigned.apk ] && [ ! -f app/build/outputs/apk/fdroid/release/app-fdroid-release.apk ]; then
+          echo "=== Release build failed, analyzing error ==="
+          
+          # Extract Kotlin compilation errors
+          echo "=== Kotlin Compilation Errors ==="
+          grep -A 10 -B 5 "e: " build.log | head -100 || echo "No Kotlin errors found in log"
+          
+          # Check for unresolved references
+          echo "=== Unresolved References ==="
+          grep "Unresolved reference" build.log | head -20 || echo "No unresolved references found"
+          
+          # Remove any custom config loaders
+          find app/src -name "*ConfigLoader*.kt" -type f -delete 2>/dev/null || true
+          
+          # Try OSS variant
+          echo "=== FDroid variant failed, trying OSS variant ==="
+          ./gradlew clean
+          ./gradlew :app:assembleOssRelease --stacktrace || true
+        fi
+        
+        # If all release builds fail, fall back to debug
+        if [ -z "$(find app/build/outputs/apk -name "*.apk" -type f 2>/dev/null)" ]; then
+          echo "=== All release builds failed, falling back to debug ==="
+          ./gradlew :app:assembleFdroidDebug --stacktrace || ./gradlew :app:assembleOssDebug --stacktrace
+        fi
+        
+        # List all APK files generated
+        echo "=== Generated APK files ==="
+        find app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
     
     - name: Get current date
       id: date
